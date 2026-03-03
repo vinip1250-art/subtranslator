@@ -4,12 +4,17 @@ import fetch from "node-fetch";
 const manifest = {
   id: "org.syncforhub.subtrans",
   version: "1.0.0",
-  name: "PT-BR Auto Translate (Syncforhub)",
-  description: "Traduz legendas de outros idiomas para PT-BR.",
+  name: "PT-BR Auto Translate",
+  description: "Sempre disponível - traduz legendas automaticamente.",
   types: ["movie", "series"],
   catalogs: [],
   resources: ["subtitles"],
-  idPrefixes: ["tt"]
+  idPrefixes: ["tt"],
+  behaviorHints: {
+    configurable: true,
+    configurationRequired: false,
+    noCache: true
+  }
 };
 
 const CORS = {
@@ -91,12 +96,13 @@ export default async function handler(req, res) {
         const srtText = await srtRes.text();
         const ptText  = await translateSrt(srtText, sourceLang, "pt");
 
-        translated.push({
-  id: sub.id + "-pt",
-  url: "data:text/plain;base64," + Buffer.from(ptText).toString("base64"),
-  lang: "por",
-  title: `[PT-BR] Auto Translate (${sub.lang.toUpperCase()})`
-});
+        // Fallback sempre disponível
+    translated.push({
+      id: "fallback-pt",
+      url: "data:text/plain;base64,WW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4=",
+      lang: "por",
+      title: "[PT-BR] Auto Translate - Sem legendas originais"
+    });
       } catch (e) {
         console.error("Translate error", e.message);
       }
