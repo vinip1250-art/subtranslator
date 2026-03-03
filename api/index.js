@@ -59,10 +59,10 @@ export default async function handler(req, res) {
     return res.end(JSON.stringify(manifest));
   }
 
-  const subMatch = innerPath.match(/^\/subtitles\/([^/]+)\/([^/]+)\.json$/);
-  if (subMatch) {
-    const [, type, videoId] = subMatch;
-    console.log("Subtitles request:", type, videoId);
+  const subMatch = innerPath.match(/^/subtitles/([^/]+)/(.+?).json$/);
+if (subMatch) {
+  const [, type, videoId] = subMatch;
+  console.log("Subtitles request:", type, videoId);
 
     const SUPPORTED = {
       eng: "en", en: "en",
