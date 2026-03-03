@@ -56,22 +56,22 @@ export default async function handler(req, res) {
     return res.end(JSON.stringify(manifest));
   }
 
-  // MANUAL PARSING SEM REGEX
   if (innerPath.indexOf("/subtitles/") === 0 && innerPath.endsWith(".json")) {
-    const afterSubtitles = innerPath.substring(10);
-    const slashPos = afterSubtitles.indexOf("/");
-    const type = afterSubtitles.substring(0, slashPos);
-    const videoId = afterSubtitles.substring(slashPos + 1, innerPath.length - 5);
-    
+    const dotJsonPos = innerPath.lastIndexOf(".json");
+    const fullVideoPart = innerPath.substring(10, dotJsonPos);
+    const slashPos = fullVideoPart.indexOf("/");
+    const type = fullVideoPart.substring(0, slashPos);
+    const videoId = fullVideoPart.substring(slashPos + 1);
+
     console.log("Type: " + type + " ID: " + videoId.substring(0, 20) + "...");
 
     const SUPPORTED = { eng: "en", en: "en", jpn: "ja", spa: "es", fra: "fr", deu: "de", ita: "it" };
-    
+
     let candidateSubs = [];
     try {
       const apiUrl = "https://opensubtitles-v3.strem.io/subtitles/" + type + "/" + videoId + ".json";
       console.log("API: " + apiUrl.substring(0, 60));
-      
+
       const apiResp = await fetch(apiUrl);
       if (apiResp.ok) {
         const data = await apiResp.json();
