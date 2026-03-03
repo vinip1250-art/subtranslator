@@ -1,21 +1,29 @@
-# Stremio Sub EN->PT-BR Translator
+# Stremio Sub EN→PT-BR Translator
 
-Addon Stremio que traduz legendas em ingles para portugues (PT-BR) automaticamente.
+Addon Stremio serverless para Vercel que traduz legendas inglês → português.
 
-## Deploy no Vercel
+## Deploy
 
-1. Instale a Vercel CLI: `npm i -g vercel`
-2. Rode `vercel` na raiz do projeto
-3. Configure as variaveis de ambiente no dashboard:
-   - `TRANSLATION_API_URL` - URL da API de traducao (ex: LibreTranslate, DeepL)
-   - `TRANSLATION_API_KEY` - Chave de autenticacao da API
+```bash
+vercel deploy --prod
+```
 
-## Instalacao no Stremio
+## URL do manifesto para instalar no Stremio
 
-Cole a URL do manifesto no Stremio:
-`https://seu-projeto.vercel.app/api/index/manifest.json`
+```
+https://SEU-PROJETO.vercel.app/manifest.json
+```
 
-## APIs de Traducao suportadas
+## Variáveis de ambiente (Vercel Dashboard)
 
-- **LibreTranslate** (gratuito e self-hosted): https://libretranslate.com
-- **DeepL API** (plano gratuito disponivel): https://www.deepl.com/pro-api
+| Variável              | Exemplo                                       |
+|-----------------------|-----------------------------------------------|
+| TRANSLATION_API_URL   | https://translate.seudominio.com/translate    |
+| TRANSLATION_API_KEY   | chave gerada pelo ltmanage                    |
+
+## Como funciona
+
+1. Stremio chama /subtitles/:type/:id.json
+2. O addon busca legendas em inglês no OpenSubtitles (via strem.io)
+3. Traduz cada legenda usando o LibreTranslate no seu VPS
+4. Retorna as legendas em PT-BR como data URI base64

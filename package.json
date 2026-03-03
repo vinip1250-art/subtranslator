@@ -1,16 +1,9 @@
 {
   "name": "stremio-sub-translator",
   "version": "1.0.0",
-  "main": "api/index.js",
   "type": "module",
-  "engines": {
-    "node": "20.x"
-  },
-  "scripts": {
-    "start": "node api/index.js"
-  },
+  "engines": { "node": "20.x" },
   "dependencies": {
-    "stremio-addon-sdk": "^1.5.0",
     "node-fetch": "^3.3.2"
   }
 }
