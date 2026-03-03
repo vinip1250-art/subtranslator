@@ -106,11 +106,12 @@ export default async function handler(req, res) {
     }
 
     if (translated.length === 0) {
+      console.log("No candidates - fallback");
       translated.push({
         id: "fallback-pt",
-        url: "data:text/plain;base64,WW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4=",
+        url: "data:text/plain;base64,WzEwMF0KMCoxCiAgMDowMDowMDAgLS0+IDAwOjAwOjAwMDgKWW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4KClsxMDBdCjEgMApcbiAwMDowMDowMTAwIC0tPiAwMDowMDowMjAwXG5cblsyMDBdCjIgMFxuXG4gMDA6MDA6MDIwMCAtLT4gMDA6MDA6MDMwMFxuXG5bMzAwXQozIDBcblxuIDAwOjAwOjAzMDAgLS0+IDAwOjAwOjA0MDBcblxuW2VuZF0=",
         lang: "por",
-        title: "[PT-BR] Sem legendas originais"
+        title: "[PT-BR] Sem legendas originais (fallback)"
       });
     }
 
