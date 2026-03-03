@@ -29,7 +29,7 @@ const VALID_TOKENS = new Set([
 ].filter(Boolean));
 
 function extractToken(path) {
-  const match = path.match(/^\/([^/]+)\//);
+  const match = path.match(/^/([^/]+)//);
   return match ? match[1] : null;
 }
 
@@ -59,10 +59,11 @@ export default async function handler(req, res) {
     return res.end(JSON.stringify(manifest));
   }
 
+  // ✅ REGEX CORRIGIDO - captura qualquer videoId até .json
   const subMatch = innerPath.match(/^/subtitles/([^/]+)/(.+?).json$/);
-if (subMatch) {
-  const [, type, videoId] = subMatch;
-  console.log("Subtitles request:", type, videoId);
+  if (subMatch) {
+    const [, type, videoId] = subMatch;
+    console.log("✅ Subtitles request:", type, videoId.substring(0, 30) + "...");
 
     const SUPPORTED = {
       eng: "en", en: "en",
@@ -73,54 +74,25 @@ if (subMatch) {
       ita: "it", it: "it"
     };
 
-    // Múltiplas fontes de legendas
-    const sources = [
-      `https://opensubtitles-v3.strem.io/subtitles/${type}/${videoId}.json`,
-      `https://api.opensubtitles.com/api/v1/subtitles?query=${encodeURIComponent(videoId)}&languages=en,ja,es,fr,de,it`
-    ];
-
     let candidateSubs = [];
-    for (const source of sources) {
-      try {
-        console.log("Trying source:", source);
-        const upstream = await fetch(source, {
-          headers: { 
-            "Api-Key": "Kzq3e6r5fQb9hP8mW2vT4nX7uY1oA6sJ3" 
-          }
-        });
-        if (upstream.ok) {
-          const data = await upstream.json();
-          console.log("Source data keys:", Object.keys(data));
-
-          if (data.data && Array.isArray(data.data)) {
-            candidateSubs = data.data
-              .map(s => ({
-                id: s.attributes.files?.[0]?.file_id || s.id,
-                lang: s.attributes.language,
-                url: s.attributes.files?.[0]?.file_id ? 
-                  `https://api.opensubtitles.com/api/v1/download` :
-                  s.attributes.url,
-                title: s.attributes.release
-              }))
-              .filter(s => SUPPORTED[s.lang]);
-          } else if (data.subtitles) {
-            candidateSubs = data.subtitles.filter(s => SUPPORTED[s.lang]);
-          }
-
-          if (candidateSubs.length > 0) {
-            console.log("Found", candidateSubs.length, "candidate subs");
-            break;
-          }
-        }
-      } catch (e) {
-        console.error(`Source ${source} error:`, e.message);
+    try {
+      // Fonte 1: Stremio OpenSubtitles V3
+      const stremioUrl = `https://opensubtitles-v3.strem.io/subtitles/${type}/${videoId}.json`;
+      console.log("Trying Stremio OpenSubtitles:", stremioUrl.substring(0, 60) + "...");
+      
+      const upstream = await fetch(stremioUrl);
+      if (upstream.ok) {
+        const data = await upstream.json();
+        candidateSubs = (data.subtitles || []).filter(s => SUPPORTED[s.lang]);
       }
+    } catch (e) {
+      console.error("Stremio source error:", e.message);
     }
 
     const translated = [];
     for (const sub of candidateSubs.slice(0, 3)) {
       try {
-        console.log("Translating sub:", sub.lang, sub.title);
+        console.log("Translating:", sub.lang, sub.title?.substring(0, 30) + "...");
         const sourceLang = SUPPORTED[sub.lang];
         const srtRes = await fetch(sub.url);
         const srtText = await srtRes.text();
@@ -132,14 +104,15 @@ if (subMatch) {
           lang: "por",
           title: `[PT-BR] Auto Translate (${sub.lang.toUpperCase()})`
         });
-        console.log("✅ Added PT-BR:", sub.title);
+        console.log("✅ Added PT-BR:", sub.title?.substring(0, 30) + "...");
       } catch (e) {
         console.error("❌ Translate error:", e.message);
       }
     }
 
-    // Fallback sempre visível
+    // ✅ FALLBACK SEMPRE VISÍVEL
     if (translated.length === 0) {
+      console.log("No subs found, adding fallback");
       translated.push({
         id: "fallback-pt",
         url: "data:text/plain;base64,WW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4=",
