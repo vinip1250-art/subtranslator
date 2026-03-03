@@ -3,9 +3,9 @@ import fetch from "node-fetch";
 
 const manifest = {
   id: "org.syncforhub.subtrans",
-  version: "1.0.0",
+  version: "1.0.1",
   name: "PT-BR Auto Translate",
-  description: "Sempre disponivel",
+  description: "Traduz legendas automaticamente para PT-BR",
   types: ["movie", "series"],
   catalogs: [],
   resources: ["subtitles"],
@@ -15,113 +15,166 @@ const manifest = {
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
-  "Content-Type": "application/json; charset=utf-8"
 };
 
-const VALID_TOKENS = new Set([
-  process.env.TOKEN_USER_1,
-  process.env.TOKEN_USER_2
-].filter(Boolean));
+const VALID_TOKENS = new Set(
+  [process.env.TOKEN_USER_1, process.env.TOKEN_USER_2].filter(Boolean)
+);
+
+// Linguagens suportadas para busca no OpenSubtitles
+const SUPPORTED_LANGS = { eng: "en", jpn: "ja", spa: "es", fra: "fr", deu: "de", ita: "it" };
+
+// ─── Handler principal ────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   const url = new URL(req.url, "https://" + req.headers.host);
   const path = url.pathname;
 
-  console.log("1. Path: " + path);
+  console.log("[subtrans] path:", path);
 
   if (req.method === "OPTIONS") {
-    res.writeHead(204, CORS);
+    res.writeHead(204, { ...CORS });
     return res.end();
   }
 
+  // Extrai token do início do path: /{token}/...
   const tokenEnd = path.indexOf("/", 1);
   const token = tokenEnd > 0 ? path.substring(1, tokenEnd) : null;
+
   if (!token || !VALID_TOKENS.has(token)) {
-    console.log("2. Token invalid");
-    res.writeHead(403, CORS);
+    console.log("[subtrans] Token inválido:", token);
+    res.writeHead(403, { ...CORS, "Content-Type": "application/json" });
     return res.end(JSON.stringify({ error: "Unauthorized" }));
   }
 
-  const innerPath = path.substring(tokenEnd);
-  console.log("3. Inner: " + innerPath);
+  const innerPath = path.substring(tokenEnd); // ex: /manifest.json, /subtitles/movie/tt123.json
+  console.log("[subtrans] innerPath:", innerPath);
 
+  // ── Manifest ──────────────────────────────────────────────────────────────
   if (innerPath === "/" || innerPath === "/manifest.json") {
-    console.log("4. Manifest OK");
-    res.writeHead(200, CORS);
+    res.writeHead(200, { ...CORS, "Content-Type": "application/json; charset=utf-8" });
     return res.end(JSON.stringify(manifest));
   }
 
-  // SIMPLES: sempre retorna fallback + tenta IMDB se achar tt
-  if (innerPath.indexOf("/subtitles/") === 0 && innerPath.endsWith(".json")) {
-    console.log("5. Subtitles path OK");
+  // ── Endpoint de tradução on-the-fly: /{token}/translate ───────────────────
+  // O Stremio faz GET nesta URL para baixar o arquivo de legenda traduzido
+  if (innerPath === "/translate") {
+    const subUrl = url.searchParams.get("url");
+    const from   = url.searchParams.get("from") || "en";
 
-    // Procura IMDB ID no path (ttXXXXXX)
-    let imdbId = null;
-    const ttMatch = innerPath.match(/tt\d+/);
-    if (ttMatch) {
-      imdbId = ttMatch[0];
-      console.log("6. Found IMDB: " + imdbId);
+    if (!subUrl) {
+      res.writeHead(400, { ...CORS, "Content-Type": "text/plain" });
+      return res.end("Missing url param");
     }
 
-    const translated = [];
+    try {
+      console.log("[subtrans] Baixando legenda:", subUrl.substring(0, 80));
+      const srtResp = await fetch(subUrl);
+      if (!srtResp.ok) throw new Error("Download falhou: " + srtResp.status);
 
-    // Tenta OpenSubtitles com IMDB se achar
-    if (imdbId) {
-      try {
-        const apiUrl = "https://opensubtitles-v3.strem.io/subtitles/movie/" + imdbId + ".json";
-        console.log("7. API: " + apiUrl);
+      const srtText = await srtResp.text();
+      console.log("[subtrans] Traduzindo", srtText.length, "chars de", from, "-> pt");
 
-        const apiResp = await fetch(apiUrl);
-        console.log("8. Status: " + apiResp.status);
+      const ptText = await translateSrt(srtText, from, "pt");
 
-        if (apiResp.ok) {
-          const data = await apiResp.json();
-          const SUPPORTED = { eng: "en", jpn: "ja", spa: "es", fra: "fr", deu: "de", ita: "it" };
-          const candidates = (data.subtitles || []).filter(s => SUPPORTED[s.lang]);
+      res.writeHead(200, {
+        ...CORS,
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "public, max-age=86400"
+      });
+      return res.end(ptText);
+    } catch (err) {
+      console.error("[subtrans] Erro ao traduzir:", err.message);
+      // Retorna legenda de erro válida em SRT
+      const errorSrt = "1\n00:00:00,000 --> 00:00:05,000\n[PT-BR] Erro ao traduzir legenda.\n";
+      res.writeHead(200, { ...CORS, "Content-Type": "text/plain; charset=utf-8" });
+      return res.end(errorSrt);
+    }
+  }
 
-          console.log("9. Candidates: " + candidates.length);
+  // ── Subtitles ─────────────────────────────────────────────────────────────
+  // Rotas: /subtitles/movie/{id}.json
+  //        /subtitles/series/{id}:{season}:{episode}.json
+  if (innerPath.startsWith("/subtitles/") && innerPath.endsWith(".json")) {
+    console.log("[subtrans] Subtitles request");
 
-          for (let i = 0; i < Math.min(1, candidates.length); i++) {
-            const sub = candidates[i];
-            try {
-              console.log("10. Downloading: " + sub.url.substring(0, 50));
-              const srtResp = await fetch(sub.url);
-              const srtText = await srtResp.text();
-              const sourceLang = SUPPORTED[sub.lang];
-              const ptText = await translateSrt(srtText, sourceLang, "pt");
+    // Detecta tipo: movie ou series
+    const isMovie  = innerPath.includes("/subtitles/movie/");
+    const isSeries = innerPath.includes("/subtitles/series/");
 
-              translated.push({
-                id: sub.id + "-pt",
-                url: "data:text/plain;base64," + Buffer.from(ptText).toString("base64"),
-                lang: "por",
-                title: "[PT-BR] from " + sub.lang.toUpperCase()
-              });
-              console.log("11. Translated OK");
-            } catch (e) {
-              console.log("12. Translation failed: " + e.message);
-            }
-          }
-        }
-      } catch (e) {
-        console.log("13. API error: " + e.message);
+    // Extrai imdbId
+    const ttMatch = innerPath.match(/tt\d+/);
+    const imdbId  = ttMatch ? ttMatch[0] : null;
+
+    // Para séries, extrai season e episode do padrão tt123456:1:2
+    let season = null, episode = null;
+    if (isSeries) {
+      const seMatch = innerPath.match(/tt\d+:(\d+):(\d+)/);
+      if (seMatch) {
+        season  = seMatch[1];
+        episode = seMatch[2];
       }
     }
 
-    // SEMPRE fallback longo
-    console.log("14. Adding fallback");
-    translated.push({
-      id: "fallback-pt",
-      url: "data:text/plain;base64,WzEwMF0KMCoxCiAgMDowMDowMDAgLS0+IDAwOjAwOjAwMDgKTGVnZW5kYSBBVVRPTSBUUkFEVVpJREEgUEItQlIgLSBOb3NlIGVuY29udHJhbSBsZWdlbmRhcyBvYmlnYXRvcmlhcy4KClsxMDBdCjEgMApcbiAwMDowMDowMTAwIC0tPiAwMDowMDowMjAwXG5BbHVuZSB2ZW1lcyBjb20gcXVhbHF1ZXIgbGVnZW5kYSBlbSBwb3J0dWd1ZXMuXG5cblsyMDBdCjIgMFxuXG4gMDA6MDA6MDIwMCAtLT4gMDA6MDA6MDMwMFxuXG5bMzAwXQozIDBcblxuIDAwOjAwOjAzMDAgLS0+IDAwOjAwOjA0MDBcblxuW2VuZF0=",
-      lang: "por",
-      title: "[PT-BR] Auto Translate Fallback"
-    });
+    console.log("[subtrans] imdbId:", imdbId, "season:", season, "ep:", episode);
 
-    console.log("15. Send: " + translated.length);
-    res.writeHead(200, CORS);
-    return res.end(JSON.stringify({ subtitles: translated }));
+    const baseUrl  = "https://" + req.headers.host + "/" + token;
+    const subtitles = [];
+
+    if (imdbId) {
+      try {
+        // Monta URL correta para OpenSubtitles
+        let apiUrl;
+        if (isSeries && season && episode) {
+          apiUrl = `https://opensubtitles-v3.strem.io/subtitles/series/${imdbId}:${season}:${episode}.json`;
+        } else {
+          apiUrl = `https://opensubtitles-v3.strem.io/subtitles/movie/${imdbId}.json`;
+        }
+
+        console.log("[subtrans] OpenSubtitles API:", apiUrl);
+        const apiResp = await fetch(apiUrl);
+        console.log("[subtrans] OpenSubtitles status:", apiResp.status);
+
+        if (apiResp.ok) {
+          const data = await apiResp.json();
+          const candidates = (data.subtitles || []).filter(s => SUPPORTED_LANGS[s.lang]);
+
+          console.log("[subtrans] Candidatos:", candidates.length);
+
+          // Tenta traduzir os 2 primeiros candidatos (para ter fallback)
+          for (let i = 0; i < Math.min(2, candidates.length); i++) {
+            const sub = candidates[i];
+            const from = SUPPORTED_LANGS[sub.lang];
+
+            // URL aponta para o endpoint /translate deste próprio addon
+            const translateUrl =
+              `${baseUrl}/translate?url=${encodeURIComponent(sub.url)}&from=${from}`;
+
+            subtitles.push({
+              id:   sub.id + "-pt-" + i,
+              url:  translateUrl,
+              lang: "por",
+              title: `[PT-BR] traduzido de ${sub.lang.toUpperCase()}`
+            });
+          }
+
+          console.log("[subtrans] Legendas montadas:", subtitles.length);
+        }
+      } catch (err) {
+        console.error("[subtrans] OpenSubtitles error:", err.message);
+      }
+    }
+
+    // Se não encontrou nada, retorna lista vazia (melhor que fallback com SRT ruim)
+    if (subtitles.length === 0) {
+      console.log("[subtrans] Nenhuma legenda encontrada para", imdbId);
+    }
+
+    res.writeHead(200, { ...CORS, "Content-Type": "application/json; charset=utf-8" });
+    return res.end(JSON.stringify({ subtitles }));
   }
 
-  console.log("16. 404");
-  res.writeHead(404, CORS);
+  console.log("[subtrans] 404:", innerPath);
+  res.writeHead(404, { ...CORS, "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "Not found" }));
 }
