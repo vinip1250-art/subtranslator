@@ -4,8 +4,8 @@ import fetch from "node-fetch";
 const manifest = {
   id: "org.syncforhub.subtrans",
   version: "1.0.0",
-  name: "Sub EN→PT-BR",
-  description: "Traduz legendas em inglês para português automaticamente.",
+  name: "PT-BR Auto Translate (Syncforhub)",
+  description: "Traduz legendas de outros idiomas para PT-BR.",
   types: ["movie", "series"],
   catalogs: [],
   resources: ["subtitles"],
