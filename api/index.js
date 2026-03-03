@@ -27,105 +27,101 @@ export default async function handler(req, res) {
   const url = new URL(req.url, "https://" + req.headers.host);
   const path = url.pathname;
 
-  console.log("Path: " + path);
+  console.log("1. Path: " + path);
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS);
     return res.end();
   }
 
-  // Extrair token simples
   const tokenEnd = path.indexOf("/", 1);
   const token = tokenEnd > 0 ? path.substring(1, tokenEnd) : null;
   if (!token || !VALID_TOKENS.has(token)) {
-    console.log("Token invalid");
+    console.log("2. Token invalid");
     res.writeHead(403, CORS);
     return res.end(JSON.stringify({ error: "Unauthorized" }));
   }
 
   const innerPath = path.substring(tokenEnd);
-  console.log("Inner: " + innerPath);
+  console.log("3. Inner: " + innerPath);
 
   if (innerPath === "/" || innerPath === "/manifest.json") {
+    console.log("4. Manifest OK");
     res.writeHead(200, CORS);
     return res.end(JSON.stringify(manifest));
   }
 
-  // Parsing ROBUSTO para subtitles
+  // SIMPLES: sempre retorna fallback + tenta IMDB se achar tt
   if (innerPath.indexOf("/subtitles/") === 0 && innerPath.endsWith(".json")) {
-    const endPos = innerPath.lastIndexOf(".json");
-    const pathAfterSubtitles = innerPath.substring(10, endPos);
+    console.log("5. Subtitles path OK");
 
-    // Type eh sempre ate o primeiro /
-    const firstSlash = pathAfterSubtitles.indexOf("/");
-    const type = pathAfterSubtitles.substring(0, firstSlash);
-    const videoId = pathAfterSubtitles.substring(firstSlash + 1);
-
-    console.log("Type: [" + type + "] ID: [" + videoId.substring(0, 30) + "]");
-
-    const SUPPORTED = { eng: "en", en: "en", jpn: "ja", spa: "es", fra: "fr", deu: "de", ita: "it" };
-
-    let candidateSubs = [];
-    try {
-      const apiUrl = "https://opensubtitles-v3.strem.io/subtitles/" + type + "/" + videoId + ".json";
-      console.log("API call: " + apiUrl.substring(0, 70));
-
-      const apiResp = await fetch(apiUrl);
-      console.log("API status: " + apiResp.status);
-
-      if (apiResp.ok) {
-        const data = await apiResp.json();
-        candidateSubs = (data.subtitles || []).filter(function(s) {
-          return SUPPORTED[s.lang] !== undefined;
-        });
-        console.log("Found candidates: " + candidateSubs.length);
-      } else {
-        console.log("API failed: " + apiResp.status);
-      }
-    } catch (e) {
-      console.log("API error: " + e.message);
+    // Procura IMDB ID no path (ttXXXXXX)
+    let imdbId = null;
+    const ttMatch = innerPath.match(/tt\d+/);
+    if (ttMatch) {
+      imdbId = ttMatch[0];
+      console.log("6. Found IMDB: " + imdbId);
     }
 
     const translated = [];
-    for (let i = 0; i < Math.min(3, candidateSubs.length); i++) {
-      const sub = candidateSubs[i];
+
+    // Tenta OpenSubtitles com IMDB se achar
+    if (imdbId) {
       try {
-        const sourceLang = SUPPORTED[sub.lang];
-        console.log("Downloading sub: " + sub.lang + " " + sub.url.substring(0, 50));
+        const apiUrl = "https://opensubtitles-v3.strem.io/subtitles/movie/" + imdbId + ".json";
+        console.log("7. API: " + apiUrl);
 
-        const srtResp = await fetch(sub.url);
-        const srtText = await srtResp.text();
-        const ptText = await translateSrt(srtText, sourceLang, "pt");
+        const apiResp = await fetch(apiUrl);
+        console.log("8. Status: " + apiResp.status);
 
-        translated.push({
-          id: sub.id + "-pt",
-          url: "data:text/plain;base64," + Buffer.from(ptText).toString("base64"),
-          lang: "por",
-          title: "[PT-BR] (" + sub.lang.toUpperCase() + ")"
-        });
-        console.log("Translated OK: " + sub.title);
+        if (apiResp.ok) {
+          const data = await apiResp.json();
+          const SUPPORTED = { eng: "en", jpn: "ja", spa: "es", fra: "fr", deu: "de", ita: "it" };
+          const candidates = (data.subtitles || []).filter(s => SUPPORTED[s.lang]);
+
+          console.log("9. Candidates: " + candidates.length);
+
+          for (let i = 0; i < Math.min(1, candidates.length); i++) {
+            const sub = candidates[i];
+            try {
+              console.log("10. Downloading: " + sub.url.substring(0, 50));
+              const srtResp = await fetch(sub.url);
+              const srtText = await srtResp.text();
+              const sourceLang = SUPPORTED[sub.lang];
+              const ptText = await translateSrt(srtText, sourceLang, "pt");
+
+              translated.push({
+                id: sub.id + "-pt",
+                url: "data:text/plain;base64," + Buffer.from(ptText).toString("base64"),
+                lang: "por",
+                title: "[PT-BR] from " + sub.lang.toUpperCase()
+              });
+              console.log("11. Translated OK");
+            } catch (e) {
+              console.log("12. Translation failed: " + e.message);
+            }
+          }
+        }
       } catch (e) {
-        console.log("Translation failed: " + e.message);
+        console.log("13. API error: " + e.message);
       }
     }
 
-    // Fallback SEMPRESempre
-    if (translated.length === 0) {
-      console.log("Using fallback");
-      translated.push({
-        id: "fallback-pt",
-        url: "data:text/plain;base64,WzEwMF0KMCoxCiAgMDowMDowMDAgLS0+IDAwOjAwOjAwMDgKWW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4KClsxMDBdCjEgMApcbiAwMDowMDowMTAwIC0tPiAwMDowMDowMjAwXG5cblsyMDBdCjIgMFxuXG4gMDA6MDA6MDIwMCAtLT4gMDA6MDA6MDMwMFxuXG5bMzAwXQozIDBcblxuIDAwOjAwOjAzMDAgLS0+IDAwOjAwOjA0MDBcblxuW2VuZF0=",
-        lang: "por",
-        title: "[PT-BR] Fallback - Sem legendas originais"
-      });
-    }
+    // SEMPRE fallback longo
+    console.log("14. Adding fallback");
+    translated.push({
+      id: "fallback-pt",
+      url: "data:text/plain;base64,WzEwMF0KMCoxCiAgMDowMDowMDAgLS0+IDAwOjAwOjAwMDgKTGVnZW5kYSBBVVRPTSBUUkFEVVpJREEgUEItQlIgLSBOb3NlIGVuY29udHJhbSBsZWdlbmRhcyBvYmlnYXRvcmlhcy4KClsxMDBdCjEgMApcbiAwMDowMDowMTAwIC0tPiAwMDowMDowMjAwXG5BbHVuZSB2ZW1lcyBjb20gcXVhbHF1ZXIgbGVnZW5kYSBlbSBwb3J0dWd1ZXMuXG5cblsyMDBdCjIgMFxuXG4gMDA6MDA6MDIwMCAtLT4gMDA6MDA6MDMwMFxuXG5bMzAwXQozIDBcblxuIDAwOjAwOjAzMDAgLS0+IDAwOjAwOjA0MDBcblxuW2VuZF0=",
+      lang: "por",
+      title: "[PT-BR] Auto Translate Fallback"
+    });
 
-    console.log("Final count: " + translated.length);
+    console.log("15. Send: " + translated.length);
     res.writeHead(200, CORS);
     return res.end(JSON.stringify({ subtitles: translated }));
   }
 
-  console.log("Not subtitles path");
+  console.log("16. 404");
   res.writeHead(404, CORS);
   res.end(JSON.stringify({ error: "Not found" }));
 }
