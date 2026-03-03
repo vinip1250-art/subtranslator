@@ -29,7 +29,8 @@ const VALID_TOKENS = new Set([
 ].filter(Boolean));
 
 function extractToken(path) {
-  const match = path.match(/^/([^/]+)//);
+  const regex = /^/([^/]+)//;
+  const match = path.match(regex);
   return match ? match[1] : null;
 }
 
@@ -46,23 +47,26 @@ export default async function handler(req, res) {
 
   const token = extractToken(path);
   if (!token || !VALID_TOKENS.has(token)) {
-    console.log("Unauthorized token: " + token);
+    console.log("Unauthorized: " + token);
     res.writeHead(403, CORS);
     return res.end(JSON.stringify({ error: "Unauthorized" }));
   }
 
-  const innerPath = path.replace(`/${token}`, "");
-  console.log("Inner path: " + innerPath + " Token OK: " + token);
+  const innerPath = path.replace("/" + token, "");
+  console.log("Inner: " + innerPath);
 
   if (innerPath === "/" || innerPath === "/manifest.json") {
     res.writeHead(200, CORS);
     return res.end(JSON.stringify(manifest));
   }
 
-  const subMatch = innerPath.match(/^/subtitles/([^/]+)/(.+?).json$/);
+  // REGEX COMO STRING NORMAL (sem ^ $ no literal)
+  const regexSub = //subtitles/([^/]+)/(.+?).json$/;
+  const subMatch = innerPath.match(regexSub);
+  
   if (subMatch) {
     const [, type, videoId] = subMatch;
-    console.log("Subtitles request: " + type + " " + videoId.substring(0, 30) + "...");
+    console.log("Subtitles: " + type + " " + videoId.substring(0, 30) + "...");
 
     const SUPPORTED = {
       eng: "en", en: "en",
@@ -75,22 +79,22 @@ export default async function handler(req, res) {
 
     let candidateSubs = [];
     try {
-      const stremioUrl = `https://opensubtitles-v3.strem.io/subtitles/${type}/${videoId}.json`;
-      console.log("Trying Stremio OpenSubtitles: " + stremioUrl.substring(0, 60) + "...");
+      const stremioUrl = "https://opensubtitles-v3.strem.io/subtitles/" + type + "/" + videoId + ".json";
+      console.log("OpenSubtitles URL: " + stremioUrl.substring(0, 60) + "...");
       
       const upstream = await fetch(stremioUrl);
       if (upstream.ok) {
         const data = await upstream.json();
         candidateSubs = (data.subtitles || []).filter(s => SUPPORTED[s.lang]);
+        console.log("Found " + candidateSubs.length + " candidates");
       }
     } catch (e) {
-      console.error("Stremio source error: " + e.message);
+      console.error("OpenSubtitles error: " + e.message);
     }
 
     const translated = [];
     for (const sub of candidateSubs.slice(0, 3)) {
       try {
-        console.log("Translating: " + sub.lang + " " + (sub.title || "").substring(0, 30) + "...");
         const sourceLang = SUPPORTED[sub.lang];
         const srtRes = await fetch(sub.url);
         const srtText = await srtRes.text();
@@ -102,14 +106,14 @@ export default async function handler(req, res) {
           lang: "por",
           title: "[PT-BR] Auto Translate (" + sub.lang.toUpperCase() + ")"
         });
-        console.log("Added PT-BR: " + (sub.title || "").substring(0, 30) + "...");
+        console.log("Added PT-BR: " + sub.title);
       } catch (e) {
         console.error("Translate error: " + e.message);
       }
     }
 
+    // Fallback sempre
     if (translated.length === 0) {
-      console.log("No subs found, adding fallback");
       translated.push({
         id: "fallback-pt",
         url: "data:text/plain;base64,WW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4=",
