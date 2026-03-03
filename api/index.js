@@ -92,11 +92,11 @@ export default async function handler(req, res) {
         const ptText  = await translateSrt(srtText, sourceLang, "pt");
 
         translated.push({
-          id: sub.id + "-pt",
-          url: "data:text/plain;base64," + Buffer.from(ptText).toString("base64"),
-          lang: "por",
-          title: `${sub.title || "Legenda"} [PT-BR via ${sub.lang.toUpperCase()}]`
-        });
+  id: sub.id + "-pt",
+  url: "data:text/plain;base64," + Buffer.from(ptText).toString("base64"),
+  lang: "por",
+  title: `[PT-BR] Auto Translate (${sub.lang.toUpperCase()})`
+});
       } catch (e) {
         console.error("Translate error", e.message);
       }
