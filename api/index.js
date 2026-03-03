@@ -23,13 +23,6 @@ const VALID_TOKENS = new Set([
   process.env.TOKEN_USER_2
 ].filter(Boolean));
 
-function extractToken(path) {
-  if (path.length < 3) return null;
-  const slash1 = path.indexOf("/", 1);
-  if (slash1 === -1) return null;
-  return path.substring(1, slash1);
-}
-
 export default async function handler(req, res) {
   const url = new URL(req.url, "https://" + req.headers.host);
   const path = url.pathname;
@@ -41,14 +34,16 @@ export default async function handler(req, res) {
     return res.end();
   }
 
-  const token = extractToken(path);
+  // Extrair token simples
+  const tokenEnd = path.indexOf("/", 1);
+  const token = tokenEnd > 0 ? path.substring(1, tokenEnd) : null;
   if (!token || !VALID_TOKENS.has(token)) {
-    console.log("Token invalid: " + token);
+    console.log("Token invalid");
     res.writeHead(403, CORS);
     return res.end(JSON.stringify({ error: "Unauthorized" }));
   }
 
-  const innerPath = path.replace("/" + token, "");
+  const innerPath = path.substring(tokenEnd);
   console.log("Inner: " + innerPath);
 
   if (innerPath === "/" || innerPath === "/manifest.json") {
@@ -56,29 +51,36 @@ export default async function handler(req, res) {
     return res.end(JSON.stringify(manifest));
   }
 
+  // Parsing ROBUSTO para subtitles
   if (innerPath.indexOf("/subtitles/") === 0 && innerPath.endsWith(".json")) {
-    const dotJsonPos = innerPath.lastIndexOf(".json");
-    const fullVideoPart = innerPath.substring(10, dotJsonPos);
-    const slashPos = fullVideoPart.indexOf("/");
-    const type = fullVideoPart.substring(0, slashPos);
-    const videoId = fullVideoPart.substring(slashPos + 1);
+    const endPos = innerPath.lastIndexOf(".json");
+    const pathAfterSubtitles = innerPath.substring(10, endPos);
 
-    console.log("Type: " + type + " ID: " + videoId.substring(0, 20) + "...");
+    // Type eh sempre ate o primeiro /
+    const firstSlash = pathAfterSubtitles.indexOf("/");
+    const type = pathAfterSubtitles.substring(0, firstSlash);
+    const videoId = pathAfterSubtitles.substring(firstSlash + 1);
+
+    console.log("Type: [" + type + "] ID: [" + videoId.substring(0, 30) + "]");
 
     const SUPPORTED = { eng: "en", en: "en", jpn: "ja", spa: "es", fra: "fr", deu: "de", ita: "it" };
 
     let candidateSubs = [];
     try {
       const apiUrl = "https://opensubtitles-v3.strem.io/subtitles/" + type + "/" + videoId + ".json";
-      console.log("API: " + apiUrl.substring(0, 60));
+      console.log("API call: " + apiUrl.substring(0, 70));
 
       const apiResp = await fetch(apiUrl);
+      console.log("API status: " + apiResp.status);
+
       if (apiResp.ok) {
         const data = await apiResp.json();
         candidateSubs = (data.subtitles || []).filter(function(s) {
           return SUPPORTED[s.lang] !== undefined;
         });
-        console.log("Candidates: " + candidateSubs.length);
+        console.log("Found candidates: " + candidateSubs.length);
+      } else {
+        console.log("API failed: " + apiResp.status);
       }
     } catch (e) {
       console.log("API error: " + e.message);
@@ -89,6 +91,8 @@ export default async function handler(req, res) {
       const sub = candidateSubs[i];
       try {
         const sourceLang = SUPPORTED[sub.lang];
+        console.log("Downloading sub: " + sub.lang + " " + sub.url.substring(0, 50));
+
         const srtResp = await fetch(sub.url);
         const srtText = await srtResp.text();
         const ptText = await translateSrt(srtText, sourceLang, "pt");
@@ -99,28 +103,29 @@ export default async function handler(req, res) {
           lang: "por",
           title: "[PT-BR] (" + sub.lang.toUpperCase() + ")"
         });
-        console.log("Translated: " + sub.title);
+        console.log("Translated OK: " + sub.title);
       } catch (e) {
-        console.log("Translate fail: " + e.message);
+        console.log("Translation failed: " + e.message);
       }
     }
 
+    // Fallback SEMPRESempre
     if (translated.length === 0) {
-      console.log("No candidates - fallback");
+      console.log("Using fallback");
       translated.push({
         id: "fallback-pt",
         url: "data:text/plain;base64,WzEwMF0KMCoxCiAgMDowMDowMDAgLS0+IDAwOjAwOjAwMDgKWW5hbWFyZXZlIGVzdGUgdmVyaWZpY2Fkb3MuIFVzZSBvdHJhcyBsZWdlbmRhcy4KClsxMDBdCjEgMApcbiAwMDowMDowMTAwIC0tPiAwMDowMDowMjAwXG5cblsyMDBdCjIgMFxuXG4gMDA6MDA6MDIwMCAtLT4gMDA6MDA6MDMwMFxuXG5bMzAwXQozIDBcblxuIDAwOjAwOjAzMDAgLS0+IDAwOjAwOjA0MDBcblxuW2VuZF0=",
         lang: "por",
-        title: "[PT-BR] Sem legendas originais (fallback)"
+        title: "[PT-BR] Fallback - Sem legendas originais"
       });
     }
 
-    console.log("Send: " + translated.length + " subs");
+    console.log("Final count: " + translated.length);
     res.writeHead(200, CORS);
     return res.end(JSON.stringify({ subtitles: translated }));
   }
 
-  console.log("404");
+  console.log("Not subtitles path");
   res.writeHead(404, CORS);
   res.end(JSON.stringify({ error: "Not found" }));
 }
