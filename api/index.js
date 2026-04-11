@@ -46,7 +46,7 @@ const BASE_MANIFEST = {
   version: "4.1.0",
   name: "Auto Translate Subtitles",
   description: "Traduz legendas automaticamente para o idioma escolhido via Google Translate.",
-  logo: "https://i.imgur.com/MZnBi2v.png",
+  logo: `${process.env.PUBLIC_URL || ""}/logo.svg`,
   types: ["movie", "series"],
   catalogs: [],
   resources: [
@@ -96,6 +96,11 @@ app.use((req, res, next) => {
 app.use((req, res, next) => { console.log("REQ:", req.method, req.url); next(); });
 
 app.get("/health", (_, res) => res.json({ ok: true }));
+
+app.get("/logo.svg", (_, res) => {
+  res.setHeader("Content-Type", "image/svg+xml");
+  res.send(readFileSync(join(__dir, "logo.svg")));
+});
 
 app.get("/configure", (_, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
