@@ -46,7 +46,7 @@ const BASE_MANIFEST = {
   version: "4.1.0",
   name: "Auto Translate Subtitles",
   description: "Traduz legendas automaticamente para o idioma escolhido via Google Translate.",
-  logo: `${process.env.PUBLIC_URL || ""}/logo.svg`,
+  logo: "/logo.png",
   types: ["movie", "series"],
   catalogs: [],
   resources: [
@@ -97,9 +97,9 @@ app.use((req, res, next) => { console.log("REQ:", req.method, req.url); next(); 
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 
-app.get("/logo.svg", (_, res) => {
-  res.setHeader("Content-Type", "image/svg+xml");
-  res.send(readFileSync(join(__dir, "logo.svg")));
+app.get("/logo.png", (_, res) => {
+  res.setHeader("Content-Type", "image/png");
+  res.send(readFileSync(join(__dir, "logo.png")));
 });
 
 app.get("/configure", (_, res) => {
@@ -107,15 +107,23 @@ app.get("/configure", (_, res) => {
   res.send(readFileSync(join(__dir, "configure.html")));
 });
 
+function getBaseUrl(req) {
+  return process.env.PUBLIC_URL || (req.protocol + "://" + req.get("host"));
+}
+
 // Manifest raiz — sem userData, mostra config obrigatória
-app.get("/manifest.json", (_, res) => res.json(BASE_MANIFEST));
+app.get("/manifest.json", (req, res) => {
+  res.json({ ...BASE_MANIFEST, logo: getBaseUrl(req) + "/logo.png" });
+});
 
 // Manifest com userData: /:userData/manifest.json
 app.get("/:userData/manifest.json", (req, res) => {
+  const base = getBaseUrl(req);
   const ud = parseUserData(req.params.userData);
   const lang = (ud.targetLang || "pt").split("|")[0];
   const manifest = {
     ...BASE_MANIFEST,
+    logo: base + "/logo.png",
     id: `community.subtrans.autotranslate.${req.params.userData.slice(0, 8)}`,
     description: `Traduz legendas para ${DST_LANG_LABELS[lang] || lang} via Google Translate.`,
     behaviorHints: { configurable: true, configurationRequired: false },
